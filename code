@@ -1,0 +1,146 @@
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <WebServer.h>
+#include <Ultrasonic.h>
+
+#define MOTOR_PIN 5          // Pin connected to garage door motor
+#define LASER_PIN 6          // Pin connected to laser sensor
+#define MICROPHONE_PIN 7     // Pin connected to microphone
+
+#define WIFI_SSID "your_wifi_ssid"
+#define WIFI_PASSWORD "your_wifi_password"
+
+Ultrasonic ultrasonic(8, 9);   // Pass as parameters the trigger and echo pin
+int bolt = 2;     // Reads the status of the pin connected to the bolt module
+int enable = 3;   // Enable pin of LM293D motor driver
+int in1 = 4;      // Input pin 1 and 2 of LM293D motor driver
+int in2 = 5;
+int buz = 6;     // Connected to the buzzer
+int old_state = 0;    // Variable to hold the previous state value of the pin connected to bolt. It is initialized to 0. Change in state indicates that the garage door is opened or closed.
+int new_state;        // Variable to hold the new state value
+int distance;         // Holds the distance between the vehicle and the garage wall
+
+WebServer server(80);
+
+void setup() {
+  Serial.begin(115200);
+
+  // Connect to Wi-Fi
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+
+  // Initialize GPIO pins
+  pinMode(MOTOR_PIN, OUTPUT);
+  pinMode(LASER_PIN, INPUT);
+  pinMode(MICROPHONE_PIN, INPUT);
+  pinMode(bolt, INPUT);
+  pinMode(enable, OUTPUT);
+  pinMode(in1, OUTPUT);
+  pinMode(in2, OUTPUT);
+  pinMode(buz, OUTPUT);
+
+  // Start the web server
+  server.begin();
+
+  // Keep the motor off initially
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, LOW);
+}
+
+void loop() {
+  server.handleClient();
+
+  // Read the new state value from the pin connected to the bolt WiFi module
+  new_state = digitalRead(bolt);
+
+  // Checking for change in state
+  if (new_state != old_state) {
+    if (new_state == 0) {
+      digitalWrite(buz, LOW);
+      Serial.println("Closing Garage");
+      digitalWrite(in1, HIGH);
+      digitalWrite(in2, LOW);
+      delay(4000);
+      digitalWrite(in1, LOW);
+      digitalWrite(in2, LOW);
+      Serial.println("Garage Closed");
+    } else if (new_state == 1) {
+      Serial.println("Opening Garage");
+      digitalWrite(in1, LOW);
+      digitalWrite(in2, HIGH);
+      delay(4000);
+      digitalWrite(in1, LOW);
+      digitalWrite(in2, LOW);
+      Serial.println("Garage Opened");
+    }
+  }
+  old_state = new_state;
+
+  if (new_state == 1) {
+    // Trigger the ultrasonic sensor if the garage door is open
+    distance = ultrasonic.read();
+    Serial.print("Distance in CM: ");
+    Serial.println(distance);
+    if (distance < 30) {
+      Serial.println("STOP!");
+      digitalWrite(buz, HIGH);
+    } else {
+      digitalWrite(buz, LOW);
+    }
+  }
+
+  // Check for commands from smartphone app
+  if (server.hasArg("command")) {
+    String command = server.arg("command");
+    if (command == "open") {
+      openGarageDoor();
+    } else if (command == "close") {
+      closeGarageDoor();
+    }
+  }
+
+  // Check for obstacle using laser sensor
+  if (digitalRead(LASER_PIN) == LOW) {
+    sendNotification("Obstacle detected in front of the garage door!");
+  }
+
+  // Check for voice commands
+  if (digitalRead(MICROPHONE_PIN) == HIGH) {
+    String voiceCommand = recognizeVoiceCommand();
+    if (voiceCommand == "open") {
+      openGarageDoor();
+    } else if (voiceCommand == "close") {
+      closeGarageDoor();
+    }
+  }
+
+  delay(5000);    // Repeat every 5 seconds (5000ms)
+}
+
+void openGarageDoor() {
+  digitalWrite(MOTOR_PIN, HIGH);
+  delay(1000);  // Adjust delay according to the time required to fully open the door
+  digitalWrite(MOTOR_PIN, LOW);
+}
+
+void closeGarageDoor() {
+  digitalWrite(MOTOR_PIN, HIGH);
+  delay(1000);  // Adjust delay according to the time required to fully close the door
+  digitalWrite(MOTOR_PIN, LOW);
+}
+
+String recognizeVoiceCommand() {
+  // Implement voice command recognition logic
+  // Return "open" or "close" based on recognized command
+}
+
+void sendNotification(String message) {
+  // Implement code to send notification to smartphone
+  // This could be through push notification service or email
+  // Example implementation using serial communication for testing
+  Serial.println("Notification: " + message);
+}
